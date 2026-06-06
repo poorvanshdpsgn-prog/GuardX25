@@ -16,6 +16,13 @@ type BleDeviceModalProps = {
   isConnecting: boolean;
 };
 
+// Extend Navigator type to include bluetooth
+interface NavigatorWithBluetooth extends Navigator {
+  bluetooth?: {
+    requestDevice: (options: any) => Promise<any>;
+  };
+}
+
 export const BleDeviceModal = ({ isOpen, onClose, onSelect, isConnecting }: BleDeviceModalProps) => {
   const [devices, setDevices] = useState<BleDevice[]>([]);
   const [isScanning, setIsScanning] = useState(false);
@@ -26,7 +33,8 @@ export const BleDeviceModal = ({ isOpen, onClose, onSelect, isConnecting }: BleD
     if (!isOpen) return;
 
     // Check if browser supports BLE
-    if (!navigator.bluetooth) {
+    const navigatorWithBluetooth = navigator as NavigatorWithBluetooth;
+    if (!navigatorWithBluetooth.bluetooth) {
       setSupportsBLE(false);
       setError('Bluetooth is not supported in this browser or context (requires HTTPS)');
       return;
@@ -36,7 +44,9 @@ export const BleDeviceModal = ({ isOpen, onClose, onSelect, isConnecting }: BleD
   }, [isOpen]);
 
   const startScan = async () => {
-    if (!navigator.bluetooth) {
+    const navigatorWithBluetooth = navigator as NavigatorWithBluetooth;
+    
+    if (!navigatorWithBluetooth.bluetooth) {
       setError('Bluetooth is not available');
       return;
     }
@@ -46,7 +56,7 @@ export const BleDeviceModal = ({ isOpen, onClose, onSelect, isConnecting }: BleD
     setDevices([]);
 
     try {
-      const device = await navigator.bluetooth.requestDevice({
+      const device = await navigatorWithBluetooth.bluetooth.requestDevice({
         acceptAllDevices: true,
         optionalServices: ['generic_access', 'generic_attribute'],
       });
