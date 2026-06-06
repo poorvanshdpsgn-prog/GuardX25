@@ -12,7 +12,12 @@ export type AlertType =
   | 'RFID Failure'
   | 'Low Battery'
   | 'BLE Disconnected'
-  | 'Location Change';
+  | 'Location Change'
+  | 'Bag Opened'
+  | 'Water Detected'
+  | 'Owner Mode'
+  | 'Misuse Detected'
+  | 'Surveillance';
 
 export type SmartAlert = {
   id: string;
@@ -62,6 +67,7 @@ export type SmartBagState = {
   events: EventLog[];
   connectionHistory: EventLog[];
   connectedDeviceId?: string;
+  connectedDevice?: BluetoothRemoteGATTServer | null;
 };
 
 type SmartBagContextValue = {
@@ -75,6 +81,7 @@ type SmartBagContextValue = {
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   connectBleDevice: (deviceId: string, deviceName: string) => Promise<void>;
+  processBleMessage: (message: string) => void;
 };
 
 export type DemoAction =
@@ -137,10 +144,7 @@ const defaultState: SmartBagState = {
   lastSync: now(),
   securityScore: 94,
   settings: defaultSettings,
-  alerts: [
-    createAlert('Location Change', 'Bag moved from Library Entry to Classroom B-204.', 'low'),
-    createAlert('Low Battery', 'Battery optimization recommended under 90%.', 'medium'),
-  ],
+  alerts: [],
   events: [
     createEvent('Owner verified', 'RFID token accepted in Owner Mode.', 'success'),
     createEvent('GPS refresh', 'Location timeline updated from campus route.', 'info'),
@@ -196,6 +200,62 @@ export const SmartBagProvider = ({ children }: { children: ReactNode }) => {
       events: [event, ...current.events].slice(0, 12),
       connectionHistory: connection ? [event, ...current.connectionHistory].slice(0, 10) : current.connectionHistory,
     }));
+  };
+
+  const processBleMessage = (message: string) => {
+    // Parse BLE messages from Arduino
+    // Format: "ALERT:MESSAGE" or "STATUS:MESSAGE"
+    
+    if (message.startsWith('ALERT:')) {
+      const alertMessage = message.replace('ALERT:', '').trim();
+      let alertType: AlertType = 'Unauthorized Movement';
+      let severity: SmartAlert['severity'] = 'high';
+
+      if (alertMessage.includes('BAG OPENED')) {
+        alertType = 'Bag Opened';
+        severity = 'high';
+      } else if (alertMessage.includes('WATER DETECTED')) {
+        alertType = 'Water Detected';
+        severity = 'critical';
+      } else if (alertMessage.includes('MISUSE DETECTED')) {
+        alertType = 'Misuse Detected';
+        severity = 'critical';
+      } else if (alertMessage.includes('SURVEILLANCE')) {
+        alertType = 'Surveillance';
+        severity = 'critical';
+      } else if (alertMessage.includes('Unauthorized Movement')) {
+        alertType = 'Unauthorized Movement';
+        severity = 'high';
+      }
+
+      setState((current) => ({
+        ...current,
+        alerts: [createAlert(alertType, alertMessage, severity), ...current.alerts].slice(0, 12),
+        securityStatus: severity === 'critical' ? 'Alert' : current.securityStatus,
+        securityScore: Math.max(0, current.securityScore - (severity === 'critical' ? 20 : 10)),
+        events: [createEvent(alertType, alertMessage, 'danger'), ...current.events].slice(0, 12),
+      }));
+
+      addToast(`🚨 ${alertType}: ${alertMessage}`);
+    } else if (message.startsWith('STATUS:')) {
+      const statusMessage = message.replace('STATUS:', '').trim();
+
+      if (statusMessage.includes('OWNER MODE ON')) {
+        setState((current) => ({
+          ...current,
+          settings: { ...current.settings, ownerMode: true },
+          events: [createEvent('Owner Mode Activated', statusMessage, 'success'), ...current.events].slice(0, 12),
+        }));
+        addToast('✓ Owner Mode Activated');
+      } else if (statusMessage.includes('OWNER MODE OFF')) {
+        setState((current) => ({
+          ...current,
+          settings: { ...current.settings, ownerMode: false },
+          events: [createEvent('Owner Mode Deactivated', statusMessage, 'info'), ...current.events].slice(0, 12),
+        }));
+        addToast('Owner Mode Deactivated');
+      }
+    }
   };
 
   const connectBleDevice = async (deviceId: string, deviceName: string) => {
@@ -337,7 +397,7 @@ export const SmartBagProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const value = useMemo(
-    () => ({ state, simulate, updateSettings, dismissAlert, addToast, toasts, removeToast, searchQuery, setSearchQuery, connectBleDevice }),
+    () => ({ state, simulate, updateSettings, dismissAlert, addToast, toasts, removeToast, searchQuery, setSearchQuery, connectBleDevice, processBleMessage }),
     [state, toasts, searchQuery],
   );
 
