@@ -61,6 +61,7 @@ export type SmartBagState = {
   alerts: SmartAlert[];
   events: EventLog[];
   connectionHistory: EventLog[];
+  connectedDeviceId?: string;
 };
 
 type SmartBagContextValue = {
@@ -73,6 +74,7 @@ type SmartBagContextValue = {
   removeToast: (index: number) => void;
   searchQuery: string;
   setSearchQuery: (query: string) => void;
+  connectBleDevice: (deviceId: string, deviceName: string) => Promise<void>;
 };
 
 export type DemoAction =
@@ -122,15 +124,15 @@ const defaultSettings: Settings = {
 const defaultState: SmartBagState = {
   bagStatus: 'Connected',
   securityStatus: 'Secure',
-  bleStatus: 'Connected',
+  bleStatus: 'Offline',
   battery: 86,
   currentLocation: 'Classroom B-204',
   lastKnownLocation: 'Main Courtyard',
   ownerAuthentication: 'Verified',
-  systemHealth: 'Online',
+  systemHealth: 'Offline',
   rfidStatus: 'Ready',
-  signalStrength: 82,
-  deviceName: 'SmartBag Connect SB-01',
+  signalStrength: 0,
+  deviceName: 'No Device Connected',
   firmwareVersion: 'v1.4.2-demo',
   lastSync: now(),
   securityScore: 94,
@@ -145,9 +147,7 @@ const defaultState: SmartBagState = {
     createEvent('Motion scan', 'No abnormal movement detected.', 'success'),
   ],
   connectionHistory: [
-    createEvent('BLE connected', 'Stable link established at -48 dBm.', 'success'),
-    createEvent('Firmware sync', 'Device telemetry synced with dashboard.', 'info'),
-    createEvent('Pairing handshake', 'Trusted device verified.', 'success'),
+    createEvent('System initialized', 'Waiting for BLE device connection.', 'info'),
   ],
 };
 
@@ -196,6 +196,52 @@ export const SmartBagProvider = ({ children }: { children: ReactNode }) => {
       events: [event, ...current.events].slice(0, 12),
       connectionHistory: connection ? [event, ...current.connectionHistory].slice(0, 10) : current.connectionHistory,
     }));
+  };
+
+  const connectBleDevice = async (deviceId: string, deviceName: string) => {
+    try {
+      setState((current) => ({
+        ...current,
+        bleStatus: 'Pairing',
+        connectedDeviceId: deviceId,
+        connectionHistory: [
+          createEvent('Connecting...', `Attempting to connect to ${deviceName}`, 'info'),
+          ...current.connectionHistory,
+        ].slice(0, 10),
+      }));
+
+      addToast(`Connecting to ${deviceName}...`);
+
+      // Simulate connection delay
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
+      setState((current) => ({
+        ...current,
+        bleStatus: 'Connected',
+        deviceName,
+        connectedDeviceId: deviceId,
+        systemHealth: 'Online',
+        bagStatus: 'Connected',
+        signalStrength: 82,
+        connectionHistory: [
+          createEvent('BLE connected', `Successfully connected to ${deviceName}`, 'success'),
+          ...current.connectionHistory,
+        ].slice(0, 10),
+      }));
+
+      addToast(`Successfully connected to ${deviceName}`);
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        bleStatus: 'Offline',
+        connectionHistory: [
+          createEvent('Connection failed', (error as Error).message, 'danger'),
+          ...current.connectionHistory,
+        ].slice(0, 10),
+      }));
+
+      addToast('Failed to connect to device');
+    }
   };
 
   const simulate = (action: DemoAction) => {
@@ -291,7 +337,7 @@ export const SmartBagProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const value = useMemo(
-    () => ({ state, simulate, updateSettings, dismissAlert, addToast, toasts, removeToast, searchQuery, setSearchQuery }),
+    () => ({ state, simulate, updateSettings, dismissAlert, addToast, toasts, removeToast, searchQuery, setSearchQuery, connectBleDevice }),
     [state, toasts, searchQuery],
   );
 
