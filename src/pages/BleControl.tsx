@@ -1,12 +1,28 @@
+import { useState } from 'react';
 import { Bluetooth, PlugZap, Radio, RotateCcw, WifiOff } from 'lucide-react';
 import { AnimatedPage } from '../components/AnimatedPage';
 import { Button } from '../components/Button';
 import { MetricCard } from '../components/MetricCard';
 import { Timeline } from '../components/Timeline';
+import { BleDeviceModal, BleDevice } from '../components/BleDeviceModal';
 import { useSmartBag } from '../context/SmartBagContext';
 
 const BleControl = () => {
-  const { state, simulate, addToast } = useSmartBag();
+  const { state, simulate, addToast, connectBleDevice } = useSmartBag();
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+
+  const handleDeviceSelect = async (device: BleDevice) => {
+    setIsConnecting(true);
+    try {
+      await connectBleDevice(device.id, device.name);
+      setIsModalOpen(false);
+    } catch (error) {
+      addToast('Failed to connect to device');
+    } finally {
+      setIsConnecting(false);
+    }
+  };
 
   return (
     <AnimatedPage>
@@ -23,14 +39,31 @@ const BleControl = () => {
           <div className="glass rounded-xl p-5">
             <h3 className="text-lg font-semibold text-white">Device controls</h3>
             <div className="mt-5 grid gap-3">
-              <Button icon={Bluetooth} onClick={() => addToast('Pairing request sent')}>Pair Device</Button>
-              <Button icon={WifiOff} variant="danger" onClick={() => simulate('bleDisconnect')}>Disconnect</Button>
-              <Button icon={RotateCcw} variant="secondary" onClick={() => simulate('deviceRecovery')}>Recover Connection</Button>
+              <Button 
+                icon={Bluetooth} 
+                onClick={() => setIsModalOpen(true)}
+                disabled={isConnecting}
+              >
+                {state.bleStatus === 'Connected' ? 'Change Device' : 'Connect Device'}
+              </Button>
+              <Button icon={WifiOff} variant="danger" onClick={() => simulate('bleDisconnect')} disabled={state.bleStatus !== 'Connected'}>
+                Disconnect
+              </Button>
+              <Button icon={RotateCcw} variant="secondary" onClick={() => simulate('deviceRecovery')}>
+                Recover Connection
+              </Button>
             </div>
           </div>
           <Timeline items={state.connectionHistory} title="Connection History" />
         </div>
       </section>
+
+      <BleDeviceModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSelect={handleDeviceSelect}
+        isConnecting={isConnecting}
+      />
     </AnimatedPage>
   );
 };
