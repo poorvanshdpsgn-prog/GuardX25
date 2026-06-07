@@ -57,7 +57,7 @@ const BleControl = () => {
       // Request device again (no cache lookup available in standard API)
       const bleDevice = await navigatorWithBluetooth.bluetooth.requestDevice({
         acceptAllDevices: true,
-        optionalServices: ['180c'],
+        optionalServices: ['0000180c-0000-1000-8000-00805f9b34fb'],
       });
 
       setConnectedDevice(bleDevice);
@@ -67,12 +67,12 @@ const BleControl = () => {
       const gattServer = await bleDevice.gatt.connect();
       console.log('✅ Connected to GATT Server');
 
-      // Get the service
-      const service = await gattServer.getPrimaryService('180c');
+      // Get the service (full UUID format)
+      const service = await gattServer.getPrimaryService('0000180c-0000-1000-8000-00805f9b34fb');
       console.log('✅ Got Service');
 
-      // Get the characteristic
-      const char = await service.getCharacteristic('2a56');
+      // Get the characteristic (full UUID format)
+      const char = await service.getCharacteristic('00002a56-0000-1000-8000-00805f9b34fb');
       console.log('✅ Got Characteristic');
 
       // Start notifications
