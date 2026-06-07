@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Bluetooth, PlugZap, Radio, RotateCcw, WifiOff } from 'lucide-react';
 import { AnimatedPage } from '../components/AnimatedPage';
 import { Button } from '../components/Button';
@@ -7,20 +7,120 @@ import { Timeline } from '../components/Timeline';
 import { BleDeviceModal, BleDevice } from '../components/BleDeviceModal';
 import { useSmartBag } from '../context/SmartBagContext';
 
+interface NavigatorWithBluetooth extends Navigator {
+  bluetooth?: {
+    requestDevice: (options: any) => Promise<any>;
+  };
+}
+
 const BleControl = () => {
-  const { state, simulate, addToast, connectBleDevice } = useSmartBag();
+  const { state, simulate, addToast, connectBleDevice, processBleMessage } = useSmartBag();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [connectedGattServer, setConnectedGattServer] = useState<any>(null);
+  const [characteristic, setCharacteristic] = useState<any>(null);
+
+  // Listen for characteristic notifications
+  useEffect(() => {
+    if (characteristic) {
+      const handleNotifications = (event: any) => {
+        const value = event.target.value;
+        if (value && value.buffer) {
+          const decoder = new TextDecoder('utf-8');
+          const message = decoder.decode(value.buffer);
+          console.log('📨 BLE Message Received:', message);
+          processBleMessage(message);
+        }
+      };
+
+      characteristic.addEventListener('characteristicvaluechanged', handleNotifications);
+
+      return () => {
+        characteristic.removeEventListener('characteristicvaluechanged', handleNotifications);
+      };
+    }
+  }, [characteristic, processBleMessage]);
 
   const handleDeviceSelect = async (device: BleDevice) => {
     setIsConnecting(true);
     try {
+      const navigatorWithBluetooth = navigator as NavigatorWithBluetooth;
+      
+      if (!navigatorWithBluetooth.bluetooth) {
+        addToast('Bluetooth not available');
+        return;
+      }
+
+      // Get the BLE device object
+      const devices = await navigatorWithBluetooth.bluetooth.getDevices?.();
+      let bleDevice = null;
+
+      if (devices) {
+        bleDevice = devices.find((d: any) => d.id === device.id);
+      }
+
+      // If not found in cache, request device again
+      if (!bleDevice) {
+        bleDevice = await navigatorWithBluetooth.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: ['180c'],
+        });
+      }
+
+      addToast(`Connecting to ${device.name}...`);
+
+      // Connect to GATT server
+      const gattServer = await bleDevice.gatt.connect();
+      console.log('✅ Connected to GATT Server');
+
+      // Get the service
+      const service = await gattServer.getPrimaryService('180c');
+      console.log('✅ Got Service');
+
+      // Get the characteristic
+      const char = await service.getCharacteristic('2a56');
+      console.log('✅ Got Characteristic');
+
+      // Start notifications
+      await char.startNotifications();
+      console.log('✅ Started Notifications');
+
+      // Store references
+      setConnectedGattServer(gattServer);
+      setCharacteristic(char);
+
+      // Update UI state
       await connectBleDevice(device.id, device.name);
       setIsModalOpen(false);
+
+      addToast(`✓ Connected to ${device.name} - Listening for alerts...`);
     } catch (error) {
-      addToast('Failed to connect to device');
+      console.error('BLE Connection Error:', error);
+      addToast(`Failed to connect: ${(error as Error).message}`);
+      setConnectedGattServer(null);
+      setCharacteristic(null);
     } finally {
       setIsConnecting(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    try {
+      if (characteristic) {
+        await characteristic.stopNotifications();
+      }
+
+      if (connectedGattServer) {
+        await connectedGattServer.disconnect();
+      }
+
+      setConnectedGattServer(null);
+      setCharacteristic(null);
+      simulate('bleDisconnect');
+      addToast('Disconnected from BLE device');
+    } catch (error) {
+      addToast('Error disconnecting');
+      console.error('Disconnect error:', error);
     }
   };
 
@@ -46,13 +146,26 @@ const BleControl = () => {
               >
                 {state.bleStatus === 'Connected' ? 'Change Device' : 'Connect Device'}
               </Button>
-              <Button icon={WifiOff} variant="danger" onClick={() => simulate('bleDisconnect')} disabled={state.bleStatus !== 'Connected'}>
+              <Button 
+                icon={WifiOff} 
+                variant="danger" 
+                onClick={handleDisconnect}
+                disabled={state.bleStatus !== 'Connected'}
+              >
                 Disconnect
               </Button>
               <Button icon={RotateCcw} variant="secondary" onClick={() => simulate('deviceRecovery')}>
                 Recover Connection
               </Button>
             </div>
+            {state.bleStatus === 'Connected' && (
+              <div className="mt-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+                <p className="text-xs text-emerald-300">
+                  <span className="inline-block w-2 h-2 bg-emerald-500 rounded-full mr-2 animate-pulse"></span>
+                  Listening for alerts...
+                </p>
+              </div>
+            )}
           </div>
           <Timeline items={state.connectionHistory} title="Connection History" />
         </div>
