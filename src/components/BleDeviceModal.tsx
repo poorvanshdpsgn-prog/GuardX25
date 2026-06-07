@@ -59,7 +59,7 @@ export const BleDeviceModal = ({ isOpen, onClose, onSelect, isConnecting, onData
     try {
       const device = await navigatorWithBluetooth.bluetooth.requestDevice({
         acceptAllDevices: true,
-        optionalServices: ['180c'],
+        optionalServices: ['0000180c-0000-1000-8000-00805f9b34fb'],
       });
 
       if (device) {
