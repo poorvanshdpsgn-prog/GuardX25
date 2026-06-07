@@ -67,7 +67,6 @@ export type SmartBagState = {
   events: EventLog[];
   connectionHistory: EventLog[];
   connectedDeviceId?: string;
-  connectedDevice?: BluetoothRemoteGATTServer | null;
 };
 
 type SmartBagContextValue = {
