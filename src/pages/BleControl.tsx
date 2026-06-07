@@ -17,6 +17,7 @@ const BleControl = () => {
   const { state, simulate, addToast, connectBleDevice, processBleMessage } = useSmartBag();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [connectedDevice, setConnectedDevice] = useState<any>(null);
   const [connectedGattServer, setConnectedGattServer] = useState<any>(null);
   const [characteristic, setCharacteristic] = useState<any>(null);
 
@@ -51,23 +52,16 @@ const BleControl = () => {
         return;
       }
 
-      // Get the BLE device object
-      const devices = await navigatorWithBluetooth.bluetooth.getDevices?.();
-      let bleDevice = null;
-
-      if (devices) {
-        bleDevice = devices.find((d: any) => d.id === device.id);
-      }
-
-      // If not found in cache, request device again
-      if (!bleDevice) {
-        bleDevice = await navigatorWithBluetooth.bluetooth.requestDevice({
-          acceptAllDevices: true,
-          optionalServices: ['180c'],
-        });
-      }
-
       addToast(`Connecting to ${device.name}...`);
+
+      // Request device again (no cache lookup available in standard API)
+      const bleDevice = await navigatorWithBluetooth.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: ['180c'],
+      });
+
+      setConnectedDevice(bleDevice);
+      console.log('✅ Device selected:', bleDevice.name);
 
       // Connect to GATT server
       const gattServer = await bleDevice.gatt.connect();
@@ -97,6 +91,7 @@ const BleControl = () => {
     } catch (error) {
       console.error('BLE Connection Error:', error);
       addToast(`Failed to connect: ${(error as Error).message}`);
+      setConnectedDevice(null);
       setConnectedGattServer(null);
       setCharacteristic(null);
     } finally {
@@ -112,6 +107,10 @@ const BleControl = () => {
 
       if (connectedGattServer) {
         await connectedGattServer.disconnect();
+      }
+
+      if (connectedDevice) {
+        setConnectedDevice(null);
       }
 
       setConnectedGattServer(null);
