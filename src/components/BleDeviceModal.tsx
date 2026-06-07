@@ -14,6 +14,7 @@ type BleDeviceModalProps = {
   onClose: () => void;
   onSelect: (device: BleDevice) => void;
   isConnecting: boolean;
+  onDataReceived?: (message: string) => void;
 };
 
 // Extend Navigator type to include bluetooth
@@ -23,7 +24,7 @@ interface NavigatorWithBluetooth extends Navigator {
   };
 }
 
-export const BleDeviceModal = ({ isOpen, onClose, onSelect, isConnecting }: BleDeviceModalProps) => {
+export const BleDeviceModal = ({ isOpen, onClose, onSelect, isConnecting, onDataReceived }: BleDeviceModalProps) => {
   const [devices, setDevices] = useState<BleDevice[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,7 +59,7 @@ export const BleDeviceModal = ({ isOpen, onClose, onSelect, isConnecting }: BleD
     try {
       const device = await navigatorWithBluetooth.bluetooth.requestDevice({
         acceptAllDevices: true,
-        optionalServices: ['generic_access', 'generic_attribute'],
+        optionalServices: ['180c'],
       });
 
       if (device) {
