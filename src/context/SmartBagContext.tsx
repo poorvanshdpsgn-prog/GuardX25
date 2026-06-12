@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { loadFromStorage, saveToStorage } from '../utils/storage';
 
 export type BagConnection = 'Connected' | 'Disconnected';
@@ -201,41 +201,51 @@ export const SmartBagProvider = ({ children }: { children: ReactNode }) => {
     }));
   };
 
-  const processBleMessage = (message: string) => {
+  const processBleMessage = useCallback((message: string) => {
     // Parse BLE messages from Arduino
     // Format: "ALERT:MESSAGE" or "STATUS:MESSAGE"
-    
+    console.log('🔵 Processing BLE message:', message);
+
     if (message.startsWith('ALERT:')) {
       const alertMessage = message.replace('ALERT:', '').trim();
       let alertType: AlertType = 'Unauthorized Movement';
       let severity: SmartAlert['severity'] = 'high';
+      let displayMessage = alertMessage;
 
       if (alertMessage.includes('BAG OPENED')) {
         alertType = 'Bag Opened';
         severity = 'high';
+        displayMessage = 'Bag was opened — possible unauthorized access.';
       } else if (alertMessage.includes('WATER DETECTED')) {
         alertType = 'Water Detected';
         severity = 'critical';
+        displayMessage = 'Water or moisture detected inside the bag.';
       } else if (alertMessage.includes('MISUSE DETECTED')) {
         alertType = 'Misuse Detected';
         severity = 'critical';
+        displayMessage = 'Unauthorized button press detected — possible misuse.';
       } else if (alertMessage.includes('SURVEILLANCE')) {
         alertType = 'Surveillance';
         severity = 'critical';
+        // Extract angle if present: "SURVEILLANCE - Person at 45 deg"
+        const angleMatch = alertMessage.match(/(\d+)\s*deg/i);
+        const angleInfo = angleMatch ? ` at ${angleMatch[1]}°` : '';
+        displayMessage = `Person detected${angleInfo} — surveillance alert triggered.`;
       } else if (alertMessage.includes('Unauthorized Movement')) {
         alertType = 'Unauthorized Movement';
         severity = 'high';
+        displayMessage = 'Motion detected while owner mode was active.';
       }
 
       setState((current) => ({
         ...current,
-        alerts: [createAlert(alertType, alertMessage, severity), ...current.alerts].slice(0, 12),
+        alerts: [createAlert(alertType, displayMessage, severity), ...current.alerts].slice(0, 12),
         securityStatus: severity === 'critical' ? 'Alert' : current.securityStatus,
         securityScore: Math.max(0, current.securityScore - (severity === 'critical' ? 20 : 10)),
-        events: [createEvent(alertType, alertMessage, 'danger'), ...current.events].slice(0, 12),
+        events: [createEvent(alertType, displayMessage, 'danger'), ...current.events].slice(0, 12),
       }));
 
-      addToast(`🚨 ${alertType}: ${alertMessage}`);
+      addToast(`🚨 ${alertType}: ${displayMessage}`);
     } else if (message.startsWith('STATUS:')) {
       const statusMessage = message.replace('STATUS:', '').trim();
 
@@ -255,7 +265,7 @@ export const SmartBagProvider = ({ children }: { children: ReactNode }) => {
         addToast('Owner Mode Deactivated');
       }
     }
-  };
+  }, [setState, addToast]);
 
   const connectBleDevice = async (deviceId: string, deviceName: string) => {
     try {
