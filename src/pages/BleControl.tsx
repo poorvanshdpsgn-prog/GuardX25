@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Bluetooth, PlugZap, Radio, RotateCcw, WifiOff } from 'lucide-react';
 import { AnimatedPage } from '../components/AnimatedPage';
 import { Button } from '../components/Button';
@@ -20,6 +20,8 @@ const BleControl = () => {
   const [connectedDevice, setConnectedDevice] = useState<any>(null);
   const [connectedGattServer, setConnectedGattServer] = useState<any>(null);
   const [characteristic, setCharacteristic] = useState<any>(null);
+  // Buffer to reassemble split BLE packets
+  const messageBufferRef = useRef('');
 
   // Listen for characteristic notifications
   useEffect(() => {
@@ -28,9 +30,21 @@ const BleControl = () => {
         const value = event.target.value;
         if (value && value.buffer) {
           const decoder = new TextDecoder('utf-8');
-          const message = decoder.decode(value.buffer);
-          console.log('📨 BLE Message Received:', message);
-          processBleMessage(message);
+          const chunk = decoder.decode(value.buffer);
+          messageBufferRef.current += chunk;
+
+          // Arduino btSend ends lines with \n — flush complete messages
+          const lines = messageBufferRef.current.split('\n');
+          // Keep last incomplete fragment in buffer
+          messageBufferRef.current = lines.pop() ?? '';
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed) {
+              console.log('📨 BLE Message Received:', trimmed);
+              processBleMessage(trimmed);
+            }
+          }
         }
       };
 
@@ -54,26 +68,37 @@ const BleControl = () => {
 
       addToast(`Connecting to ${device.name}...`);
 
-      // Request device again (no cache lookup available in standard API)
+      // Nordic UART Service (NUS) — standard for HC-05/HC-06/BLE UART + Arduino btSend()
+      // Service:        6e400001-b5a3-f393-e0a9-e50e24dcca9e
+      // TX Characteristic (Arduino → Phone): 6e400003-b5a3-f393-e0a9-e50e24dcca9e
+      const NUS_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+      const NUS_TX_CHAR = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
       const bleDevice = await navigatorWithBluetooth.bluetooth.requestDevice({
         acceptAllDevices: true,
-        optionalServices: ['0000180c-0000-1000-8000-00805f9b34fb'],
+        optionalServices: [NUS_SERVICE],
       });
 
       setConnectedDevice(bleDevice);
       console.log('✅ Device selected:', bleDevice.name);
 
+      // Re-connect if the device was previously disconnected
+      bleDevice.addEventListener('gattserverdisconnected', () => {
+        console.warn('⚠️ BLE device disconnected unexpectedly');
+        handleDisconnect();
+      });
+
       // Connect to GATT server
       const gattServer = await bleDevice.gatt.connect();
       console.log('✅ Connected to GATT Server');
 
-      // Get the service (full UUID format)
-      const service = await gattServer.getPrimaryService('0000180c-0000-1000-8000-00805f9b34fb');
-      console.log('✅ Got Service');
+      // Get the Nordic UART Service
+      const service = await gattServer.getPrimaryService(NUS_SERVICE);
+      console.log('✅ Got NUS Service');
 
-      // Get the characteristic (full UUID format)
-      const char = await service.getCharacteristic('00002a56-0000-1000-8000-00805f9b34fb');
-      console.log('✅ Got Characteristic');
+      // Get the TX characteristic (data flows Arduino → browser)
+      const char = await service.getCharacteristic(NUS_TX_CHAR);
+      console.log('✅ Got TX Characteristic');
 
       // Start notifications
       await char.startNotifications();
